@@ -1,0 +1,190 @@
+{% extends "base.html" %}
+{% block title %}Dashboard – Smart Flashcard Engine{% endblock %}
+
+{% block content %}
+<div class="dashboard-container">
+    <!-- Stats Overview -->
+    <section class="stats-overview">
+        <h1 class="page-title">Your Dashboard</h1>
+        <div class="stats-grid">
+            <div class="stat-card stat-total">
+                <div class="stat-icon">📚</div>
+                <div class="stat-info">
+                    <span class="stat-number" data-count="{{ stats.total_cards }}">0</span>
+                    <span class="stat-label">Total Cards</span>
+                </div>
+            </div>
+            <div class="stat-card stat-mastered">
+                <div class="stat-icon">🏆</div>
+                <div class="stat-info">
+                    <span class="stat-number" data-count="{{ stats.mastered }}">0</span>
+                    <span class="stat-label">Mastered</span>
+                </div>
+            </div>
+            <div class="stat-card stat-due">
+                <div class="stat-icon">⏰</div>
+                <div class="stat-info">
+                    <span class="stat-number" data-count="{{ stats.due }}">0</span>
+                    <span class="stat-label">Due for Review</span>
+                </div>
+            </div>
+            <div class="stat-card stat-learning">
+                <div class="stat-icon">📖</div>
+                <div class="stat-info">
+                    <span class="stat-number" data-count="{{ stats.learning }}">0</span>
+                    <span class="stat-label">Learning</span>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Analytics Charts Section -->
+    <section class="charts-section">
+        <div class="section-header">
+            <h2 class="section-title">📈 Analytics</h2>
+        </div>
+        <div class="charts-grid">
+            <!-- Donut Chart: Card Status Distribution -->
+            <div class="chart-card" id="chart-card-donut">
+                <h3 class="chart-title">Card Status Distribution</h3>
+                <div class="chart-canvas-wrapper">
+                    <canvas id="donut-chart" width="280" height="280"></canvas>
+                </div>
+                <div class="chart-legend" id="donut-legend">
+                    <div class="legend-item">
+                        <span class="legend-dot" style="background: #34d399;"></span>
+                        <span class="legend-label">Mastered</span>
+                        <span class="legend-value" id="legend-mastered">{{ stats.mastered }}</span>
+                    </div>
+                    <div class="legend-item">
+                        <span class="legend-dot" style="background: #6366f1;"></span>
+                        <span class="legend-label">Learning</span>
+                        <span class="legend-value" id="legend-learning">{{ stats.learning }}</span>
+                    </div>
+                    <div class="legend-item">
+                        <span class="legend-dot" style="background: #fbbf24;"></span>
+                        <span class="legend-label">Due</span>
+                        <span class="legend-value" id="legend-due">{{ stats.due }}</span>
+                    </div>
+                    <div class="legend-item">
+                        <span class="legend-dot" style="background: #64748b;"></span>
+                        <span class="legend-label">New</span>
+                        <span class="legend-value" id="legend-new">{{ stats.total_cards - stats.mastered - stats.learning - stats.due }}</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Bar Chart: Per-Deck Progress -->
+            <div class="chart-card" id="chart-card-bar">
+                <h3 class="chart-title">Deck Mastery Progress</h3>
+                <div class="chart-canvas-wrapper chart-canvas-wide">
+                    <canvas id="bar-chart" width="500" height="280"></canvas>
+                </div>
+                {% if not decks %}
+                <p class="chart-empty-hint">Upload PDFs to see progress here</p>
+                {% endif %}
+            </div>
+        </div>
+    </section>
+
+    <!-- Hidden data for JS charts -->
+    <script id="chart-data" type="application/json">
+    {
+        "stats": {
+            "mastered": {{ stats.mastered }},
+            "learning": {{ stats.learning }},
+            "due": {{ stats.due }},
+            "total": {{ stats.total_cards }},
+            "new": {{ stats.total_cards - stats.mastered - stats.learning - stats.due }}
+        },
+        "decks": [
+            {% for deck in decks %}
+            {
+                "name": {{ deck.name | tojson }},
+                "total": {{ deck.total_cards }},
+                "mastered": {{ deck.mastered }},
+                "learning": {{ deck.learning }},
+                "due": {{ deck.due }},
+                "new": {{ deck.new }},
+                "progress": {{ deck.progress }}
+            }{% if not loop.last %},{% endif %}
+            {% endfor %}
+        ]
+    }
+    </script>
+
+    <!-- Decks Section -->
+    <section class="decks-section">
+        <div class="section-header">
+            <h2 class="section-title">Your Decks</h2>
+            <a href="/" class="btn btn-primary btn-sm" id="add-deck-btn">
+                <span>+</span> New Deck
+            </a>
+        </div>
+
+        {% if decks %}
+        <div class="decks-grid">
+            {% for deck in decks %}
+            <div class="deck-card" id="deck-{{ deck.id }}" data-deck-id="{{ deck.id }}">
+                <div class="deck-card-header">
+                    <h3 class="deck-name">{{ deck.name }}</h3>
+                    <button class="deck-delete-btn" data-deck-id="{{ deck.id }}" title="Delete deck" id="delete-deck-{{ deck.id }}">
+                        <span>🗑️</span>
+                    </button>
+                </div>
+                <div class="deck-stats">
+                    <div class="deck-stat">
+                        <span class="deck-stat-value">{{ deck.total_cards }}</span>
+                        <span class="deck-stat-label">Cards</span>
+                    </div>
+                    <div class="deck-stat">
+                        <span class="deck-stat-value deck-stat-mastered">{{ deck.mastered }}</span>
+                        <span class="deck-stat-label">Mastered</span>
+                    </div>
+                    <div class="deck-stat">
+                        <span class="deck-stat-value deck-stat-due">{{ deck.due }}</span>
+                        <span class="deck-stat-label">Due</span>
+                    </div>
+                </div>
+                <!-- Progress Ring -->
+                <div class="deck-progress-container">
+                    <svg class="progress-ring" viewBox="0 0 100 100">
+                        <circle class="progress-ring-bg" cx="50" cy="50" r="42"></circle>
+                        <circle class="progress-ring-fill" cx="50" cy="50" r="42"
+                                style="stroke-dashoffset: {{ 264 - (264 * deck.progress / 100) }}"></circle>
+                    </svg>
+                    <span class="progress-ring-text">{{ deck.progress }}%</span>
+                </div>
+                <div class="deck-card-footer">
+                    <span class="deck-date">Created {{ deck.created_at }}</span>
+                    <a href="/practice/{{ deck.id }}" class="btn btn-accent btn-sm" id="practice-deck-{{ deck.id }}">
+                        Practice →
+                    </a>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+        {% else %}
+        <div class="empty-state">
+            <div class="empty-icon">📭</div>
+            <h3>No decks yet</h3>
+            <p>Upload a PDF to create your first flashcard deck!</p>
+            <a href="/" class="btn btn-primary">Upload PDF</a>
+        </div>
+        {% endif %}
+    </section>
+</div>
+
+<!-- Delete Confirmation Modal -->
+<div class="modal-overlay hidden" id="delete-modal">
+    <div class="modal-card">
+        <div class="modal-icon">⚠️</div>
+        <h3 class="modal-title">Delete Deck?</h3>
+        <p class="modal-message">This will permanently delete all cards in this deck. This action cannot be undone.</p>
+        <div class="modal-actions">
+            <button class="btn btn-secondary" id="cancel-delete">Cancel</button>
+            <button class="btn btn-danger" id="confirm-delete">Delete</button>
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,109 @@
+{% extends "base.html" %}
+{% block title %}Practice – {{ deck.name }} – Smart Flashcard Engine{% endblock %}
+
+{% block content %}
+<div class="practice-container" data-deck-id="{{ deck.id }}">
+    <!-- Practice Header -->
+    <div class="practice-header">
+        <a href="/dashboard" class="btn btn-ghost" id="back-to-dashboard">← Back</a>
+        <h1 class="practice-deck-name">{{ deck.name }}</h1>
+        <div class="practice-counter">
+            <span id="current-card-num">0</span> / <span id="total-card-num">0</span>
+        </div>
+    </div>
+
+    <!-- Progress Bar -->
+    <div class="practice-progress-bar-wrapper">
+        <div class="practice-progress-bar" id="practice-progress-bar" style="width: 0%"></div>
+    </div>
+
+    <!-- Loading State -->
+    <div class="practice-loading" id="practice-loading">
+        <div class="spinner"></div>
+        <p>Loading flashcards...</p>
+    </div>
+
+    <!-- Flashcard -->
+    <div class="flashcard-wrapper hidden" id="flashcard-wrapper">
+        <div class="flashcard-scene" id="flashcard-scene">
+            <div class="flashcard" id="flashcard">
+                <div class="flashcard-face flashcard-front" id="flashcard-front">
+                    <div class="card-label">QUESTION</div>
+                    <div class="card-content" id="card-question"></div>
+                    <div class="card-image-container hidden" id="card-image-front">
+                        <img src="" alt="Card image" id="card-img-front">
+                    </div>
+                    <div class="card-hint">Click or press Space to flip</div>
+                </div>
+                <div class="flashcard-face flashcard-back" id="flashcard-back">
+                    <div class="card-label">ANSWER</div>
+                    <div class="card-content" id="card-answer"></div>
+                    <div class="card-image-container hidden" id="card-image-back">
+                        <img src="" alt="Card image" id="card-img-back">
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Rating Buttons -->
+        <div class="rating-buttons hidden" id="rating-buttons">
+            <p class="rating-prompt">How well did you know this?</p>
+            <div class="rating-btn-group">
+                <button class="btn btn-rating btn-hard" data-quality="1" id="rate-hard">
+                    <span class="rating-emoji">😓</span>
+                    <span class="rating-label">Hard</span>
+                    <span class="rating-desc">Review soon</span>
+                </button>
+                <button class="btn btn-rating btn-medium" data-quality="3" id="rate-medium">
+                    <span class="rating-emoji">🤔</span>
+                    <span class="rating-label">Medium</span>
+                    <span class="rating-desc">Review later</span>
+                </button>
+                <button class="btn btn-rating btn-easy" data-quality="5" id="rate-easy">
+                    <span class="rating-emoji">😎</span>
+                    <span class="rating-label">Easy</span>
+                    <span class="rating-desc">Got it!</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Session Complete -->
+    <div class="session-complete hidden" id="session-complete">
+        <div class="complete-animation">
+            <div class="complete-icon">🎉</div>
+        </div>
+        <h2 class="complete-title">Session Complete!</h2>
+        <div class="session-stats">
+            <div class="session-stat">
+                <span class="session-stat-value" id="stat-total-reviewed">0</span>
+                <span class="session-stat-label">Cards Reviewed</span>
+            </div>
+            <div class="session-stat">
+                <span class="session-stat-value session-stat-easy" id="stat-easy-count">0</span>
+                <span class="session-stat-label">Easy</span>
+            </div>
+            <div class="session-stat">
+                <span class="session-stat-value session-stat-medium" id="stat-medium-count">0</span>
+                <span class="session-stat-label">Medium</span>
+            </div>
+            <div class="session-stat">
+                <span class="session-stat-value session-stat-hard" id="stat-hard-count">0</span>
+                <span class="session-stat-label">Hard</span>
+            </div>
+        </div>
+        <div class="complete-actions">
+            <button class="btn btn-primary" id="restart-practice">Practice Again</button>
+            <a href="/dashboard" class="btn btn-secondary">Back to Dashboard</a>
+        </div>
+    </div>
+
+    <!-- Empty State -->
+    <div class="practice-empty hidden" id="practice-empty">
+        <div class="empty-icon">🎯</div>
+        <h3>All caught up!</h3>
+        <p>No cards are due for review right now. Great job!</p>
+        <a href="/dashboard" class="btn btn-primary">Back to Dashboard</a>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+{% block title %}Upload PDF – Smart Flashcard Engine{% endblock %}
+
+{% block content %}
+<div class="hero-section">
+    <div class="hero-particles" id="hero-particles"></div>
+    <div class="hero-content">
+        <h1 class="hero-title">
+            <span class="title-gradient">Transform PDFs</span>
+            <br>into Smart Flashcards
+        </h1>
+        <p class="hero-subtitle">
+            Upload any PDF and our AI engine will generate high-quality flashcards instantly.
+            Learn smarter with spaced repetition.
+        </p>
+
+        <!-- Upload Area -->
+        <div class="upload-zone" id="upload-zone">
+            <div class="upload-zone-content" id="upload-content">
+                <div class="upload-icon-wrapper">
+                    <div class="upload-icon">📄</div>
+                    <div class="upload-pulse"></div>
+                </div>
+                <h3 class="upload-title">Drop your PDF here</h3>
+                <p class="upload-hint">or click to browse files</p>
+                <p class="upload-limit">Maximum file size: 1 GB</p>
+                <input type="file" id="file-input" accept=".pdf" hidden>
+            </div>
+
+            <!-- Progress State -->
+            <div class="upload-progress hidden" id="upload-progress">
+                <div class="progress-spinner">
+                    <div class="spinner"></div>
+                </div>
+                <h3 class="progress-title" id="progress-title">Uploading PDF...</h3>
+                <p class="progress-subtitle" id="progress-subtitle">This may take a moment while AI generates your flashcards</p>
+                <div class="progress-bar-container">
+                    <div class="progress-bar" id="progress-bar"></div>
+                </div>
+                <p class="progress-percent" id="progress-percent">0%</p>
+            </div>
+
+            <!-- Success State -->
+            <div class="upload-success hidden" id="upload-success">
+                <div class="success-icon">✅</div>
+                <h3 class="success-title" id="success-title">Flashcards Generated!</h3>
+                <p class="success-subtitle" id="success-subtitle"></p>
+                <div class="success-actions">
+                    <a href="/dashboard" class="btn btn-primary" id="go-dashboard">View Dashboard</a>
+                    <button class="btn btn-secondary" id="practice-now-btn">Practice Now</button>
+                </div>
+            </div>
+
+            <!-- Error State -->
+            <div class="upload-error hidden" id="upload-error">
+                <div class="error-icon">❌</div>
+                <h3 class="error-title">Something went wrong</h3>
+                <p class="error-message" id="error-message"></p>
+                <button class="btn btn-secondary" id="try-again-btn">Try Again</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Features Section -->
+<section class="features-section">
+    <div class="features-grid">
+        <div class="feature-card">
+            <div class="feature-icon-bg">
+                <span class="feature-icon">🧠</span>
+            </div>
+            <h3 class="feature-title">AI-Powered Generation</h3>
+            <p class="feature-desc">Advanced AI analyzes your documents and creates comprehensive Q&A flashcards covering key concepts, definitions, and edge cases.</p>
+        </div>
+        <div class="feature-card">
+            <div class="feature-icon-bg">
+                <span class="feature-icon">🔄</span>
+            </div>
+            <h3 class="feature-title">Spaced Repetition</h3>
+            <p class="feature-desc">SM-2 algorithm optimally schedules review sessions so you focus on what you need to learn, when you need to learn it.</p>
+        </div>
+        <div class="feature-card">
+            <div class="feature-icon-bg">
+                <span class="feature-icon">📊</span>
+            </div>
+            <h3 class="feature-title">Progress Tracking</h3>
+            <p class="feature-desc">Visual dashboards show your mastery level, due cards, and learning progress across all your decks.</p>
+        </div>
+    </div>
+</section>
+{% endblock %}
