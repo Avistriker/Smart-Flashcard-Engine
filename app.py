@@ -62,11 +62,9 @@ def dashboard():
 
         for deck in decks:
             cards = deck.cards.all()
-            # These three are mutually exclusive mastery categories
             mastered = sum(1 for c in cards if c.mastery_level == 'mastered')
             learning = sum(1 for c in cards if c.mastery_level == 'learning')
             new = sum(1 for c in cards if c.mastery_level == 'new')
-            # 'due' is orthogonal — any card can be due regardless of mastery
             due = sum(1 for c in cards if c.is_due)
 
             total_cards += len(cards)
@@ -122,67 +120,81 @@ def practice(deck_id):
 @app.route('/upload', methods=['POST'])
 def upload():
     """Handle PDF upload, extract text, generate flashcards via AI."""
-    if 'pdf' not in request.files:
-        return jsonify({'error': 'No file uploaded'}), 400
-
-    file = request.files['pdf']
-    if file.filename == '':
-        return jsonify({'error': 'No file selected'}), 400
-
-    if not allowed_file(file.filename):
-        return jsonify({'error': 'Only PDF files are allowed'}), 400
-
-    filename = secure_filename(file.filename)
-    filepath = os.path.join(UPLOAD_FOLDER, filename)
-    file.save(filepath)
-
-    session = Session()
+    filepath = None
     try:
-        # 1. Extract text and images from PDF
-        extraction = extract_from_pdf(filepath)
-        text = extraction['text']
-        images = extraction['images']
+        if 'pdf' not in request.files:
+            return jsonify({'error': 'No file uploaded'}), 400
 
-        if not text or len(text.strip()) < 50:
-            return jsonify({'error': 'Could not extract enough text from the PDF. Please try a different file.'}), 400
+        file = request.files['pdf']
+        if file.filename == '':
+            return jsonify({'error': 'No file selected'}), 400
 
-        # 2. Generate flashcards via AI
-        flashcards = generate_flashcards(text, images)
+        if not allowed_file(file.filename):
+            return jsonify({'error': 'Only PDF files are allowed'}), 400
 
-        # 3. Create deck
-        deck_name = filename.rsplit('.', 1)[0].replace('_', ' ').replace('-', ' ').title()
-        deck = Deck(name=deck_name, total_cards=len(flashcards))
-        session.add(deck)
-        session.flush()  # get deck.id
+        filename = secure_filename(file.filename)
+        filepath = os.path.join(UPLOAD_FOLDER, filename)
+        file.save(filepath)
 
-        # 4. Create cards
-        for fc in flashcards:
-            card = Card(
-                deck_id=deck.id,
-                question=fc['question'],
-                answer=fc['answer'],
-                image_path=fc.get('image_path', None),
-            )
-            session.add(card)
+        session = Session()
+        try:
+            # 1. Extract text and images from PDF
+            extraction = extract_from_pdf(filepath)
+            text = extraction['text']
+            images = extraction['images']
 
-        session.commit()
+            if not text or len(text.strip()) < 50:
+                return jsonify({'error': 'Could not extract enough text from the PDF. Please try a different file.'}), 400
 
-        return jsonify({
-            'success': True,
-            'deck_id': deck.id,
-            'deck_name': deck.name,
-            'card_count': len(flashcards),
-            'message': f'Generated {len(flashcards)} flashcards!'
-        })
+            # 2. Generate flashcards via AI
+            flashcards = generate_flashcards(text, images)
+
+            # 3. Create deck
+            deck_name = filename.rsplit('.', 1)[0].replace('_', ' ').replace('-', ' ').title()
+            deck = Deck(name=deck_name, total_cards=len(flashcards))
+            session.add(deck)
+            session.flush()  # get deck.id
+
+            # 4. Create cards
+            for fc in flashcards:
+                card = Card(
+                    deck_id=deck.id,
+                    question=fc['question'],
+                    answer=fc['answer'],
+                    image_path=fc.get('image_path', None),
+                )
+                session.add(card)
+
+            session.commit()
+
+            return jsonify({
+                'success': True,
+                'deck_id': deck.id,
+                'deck_name': deck.name,
+                'card_count': len(flashcards),
+                'message': f'Generated {len(flashcards)} flashcards!'
+            })
+
+        except Exception as e:
+            session.rollback()
+            import traceback
+            traceback.print_exc()
+            # Return a user-friendly error message
+            error_msg = str(e)
+            if "rate limit" in error_msg.lower() or "429" in error_msg:
+                error_msg = "API rate limit exceeded. Please wait a moment and try again."
+            return jsonify({'error': error_msg}), 500
+        finally:
+            session.close()
 
     except Exception as e:
-        session.rollback()
-        return jsonify({'error': str(e)}), 500
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': f'Unexpected server error: {str(e)}'}), 500
     finally:
         # Clean up uploaded file
-        if os.path.exists(filepath):
+        if filepath and os.path.exists(filepath):
             os.remove(filepath)
-        session.close()
 
 
 @app.route('/api/deck/<int:deck_id>/cards')
@@ -198,27 +210,21 @@ def get_deck_cards(deck_id):
         now = datetime.utcnow()
 
         if mode == 'all':
-            # Show all cards (for first-time study or review-all)
             practice_cards = deck.cards.all()
         else:
-            # Smart mode: due cards first
             due_cards = deck.cards.filter(Card.next_review_date <= now).all()
 
             if due_cards:
                 practice_cards = due_cards
             else:
-                # No cards due — check if any cards exist at all
                 all_cards = deck.cards.all()
                 if not all_cards:
                     return jsonify({'cards': [], 'total': 0})
 
-                # Check if all cards are brand new (never reviewed)
                 new_cards = [c for c in all_cards if c.repetitions == 0]
                 if new_cards:
-                    # First time studying this deck — show all new cards
                     practice_cards = new_cards
                 else:
-                    # All cards reviewed, none due yet — return empty with next review time
                     next_review = min(c.next_review_date for c in all_cards)
                     return jsonify({
                         'cards': [],
@@ -243,7 +249,7 @@ def review_card(card_id):
             return jsonify({'error': 'Card not found'}), 404
 
         data = request.get_json()
-        quality = data.get('quality', 3)  # default to Medium
+        quality = data.get('quality', 3)
 
         if quality not in [1, 3, 5]:
             return jsonify({'error': 'Quality must be 1 (Hard), 3 (Medium), or 5 (Easy)'}), 400
@@ -274,7 +280,6 @@ def delete_deck(deck_id):
         if not deck:
             return jsonify({'error': 'Deck not found'}), 404
 
-        # Delete associated images
         cards = deck.cards.all()
         for card in cards:
             if card.image_path:
