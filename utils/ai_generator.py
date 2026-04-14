@@ -1,5 +1,5 @@
 """
-AI-powered flashcard generation using Google Gemini API.
+AI-powered flashcard generation using OpenRouter API (openai/gpt-oss-120b:free).
 Uses parallel chunking for fast, comprehensive coverage of long documents.
 """
 
@@ -8,7 +8,7 @@ import json
 import re
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from google import genai
+from openai import OpenAI
 
 # Larger chunks = fewer API calls = faster
 CHUNK_SIZE = 6000
@@ -17,8 +17,8 @@ MAX_TEXT_LENGTH = 12000
 # Minimum cards expected per chunk
 MIN_CARDS_PER_CHUNK = 5
 
-# Gemini model
-GEMINI_MODEL = "gemini-2.5-flash-preview-05-20"
+# OpenRouter model
+OPENROUTER_MODEL = "openai/gpt-oss-120b:free"
 
 # Max retries before giving up
 MAX_RETRIES = 3
@@ -43,7 +43,7 @@ class APIError(Exception):
 
 def generate_flashcards(text, images=None):
     """
-    Send extracted PDF text to Gemini API and get back flashcards.
+    Send extracted PDF text to OpenRouter API and get back flashcards.
     Uses PARALLEL chunking for speed.
 
     Args:
@@ -53,9 +53,9 @@ def generate_flashcards(text, images=None):
     Returns:
         list: [{"question": "...", "answer": "...", "page": int or None}]
     """
-    api_key = os.getenv('GEMINI_API_KEY')
+    api_key = os.getenv('OPENROUTER_API_KEY')
     if not api_key:
-        raise ValueError("GEMINI_API_KEY environment variable is not set")
+        raise ValueError("OPENROUTER_API_KEY environment variable is not set")
 
     # Limit total text
     working_text = text[:MAX_TEXT_LENGTH]
@@ -158,9 +158,9 @@ Text:
 {text_chunk}"""
 
 
-def _call_gemini(api_key, prompt):
+def _call_openrouter(api_key, prompt):
     """
-    Make a single API call to Google Gemini.
+    Make a single API call to OpenRouter using the openai/gpt-oss-120b:free model.
     Returns parsed flashcard list on success, raises on failure.
     """
     global _last_request_time
@@ -174,24 +174,31 @@ def _call_gemini(api_key, prompt):
     _last_request_time = time.time()
 
     try:
-        client = genai.Client(api_key=api_key)
-        response = client.models.generate_content(
-            model=GEMINI_MODEL,
-            contents=prompt,
+        client = OpenAI(
+            base_url="https://openrouter.ai/api/v1",
+            api_key=api_key,
         )
 
-        content = response.text
+        response = client.chat.completions.create(
+            model=OPENROUTER_MODEL,
+            messages=[
+                {"role": "user", "content": prompt}
+            ],
+            extra_body={"reasoning": {"enabled": True}}
+        )
+
+        content = response.choices[0].message.content
 
         if not content or not content.strip():
-            raise APIError("Empty response from Gemini")
+            raise APIError("Empty response from OpenRouter")
 
         return parse_flashcard_json(content)
 
     except Exception as e:
         error_msg = str(e)
         if "429" in error_msg or "rate limit" in error_msg.lower() or "quota" in error_msg.lower():
-            raise RateLimitError(f"Rate limited by Gemini: {error_msg}")
-        raise APIError(f"Gemini API error: {error_msg}")
+            raise RateLimitError(f"Rate limited by OpenRouter: {error_msg}")
+        raise APIError(f"OpenRouter API error: {error_msg}")
 
 
 def _generate_chunk_flashcards(api_key, text_chunk, images, chunk_num, total_chunks):
@@ -206,9 +213,9 @@ def _generate_chunk_flashcards(api_key, text_chunk, images, chunk_num, total_chu
             tag = f"[Chunk {chunk_num}]"
             if attempt > 1:
                 tag += f" (retry {attempt})"
-            print(f"{tag} Calling Gemini ({GEMINI_MODEL})...")
+            print(f"{tag} Calling OpenRouter ({OPENROUTER_MODEL})...")
 
-            cards = _call_gemini(api_key, prompt)
+            cards = _call_openrouter(api_key, prompt)
             print(f"{tag} [OK] {len(cards)} cards generated")
             return cards
 
@@ -232,7 +239,7 @@ def _generate_chunk_flashcards(api_key, text_chunk, images, chunk_num, total_chu
             last_error = str(e)
             break
 
-    raise Exception(f"Gemini failed after {MAX_RETRIES} attempts. Last error: {last_error}")
+    raise Exception(f"OpenRouter failed after {MAX_RETRIES} attempts. Last error: {last_error}")
 
 
 def _deduplicate_cards(cards):
@@ -295,7 +302,7 @@ def parse_flashcard_json(content):
         except json.JSONDecodeError:
             pass
 
-    raise Exception("Could not parse flashcards from Gemini response. The model did not return valid JSON.")
+    raise Exception("Could not parse flashcards from OpenRouter response. The model did not return valid JSON.")
 
 
 def validate_cards(cards):
@@ -312,7 +319,7 @@ def validate_cards(cards):
                     'page': card.get('page', None)
                 })
     if not valid_cards:
-        raise Exception("No valid flashcards found in Gemini response.")
+        raise Exception("No valid flashcards found in OpenRouter response.")
     return valid_cards
 
 
