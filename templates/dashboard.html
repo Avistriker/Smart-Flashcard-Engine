@@ -62,14 +62,9 @@
                         <span class="legend-value" id="legend-learning">{{ stats.learning }}</span>
                     </div>
                     <div class="legend-item">
-                        <span class="legend-dot" style="background: #fbbf24;"></span>
-                        <span class="legend-label">Due</span>
-                        <span class="legend-value" id="legend-due">{{ stats.due }}</span>
-                    </div>
-                    <div class="legend-item">
                         <span class="legend-dot" style="background: #64748b;"></span>
                         <span class="legend-label">New</span>
-                        <span class="legend-value" id="legend-new">{{ stats.total_cards - stats.mastered - stats.learning - stats.due }}</span>
+                        <span class="legend-value" id="legend-new">{{ stats.new }}</span>
                     </div>
                 </div>
             </div>
@@ -95,7 +90,7 @@
             "learning": {{ stats.learning }},
             "due": {{ stats.due }},
             "total": {{ stats.total_cards }},
-            "new": {{ stats.total_cards - stats.mastered - stats.learning - stats.due }}
+            "new": {{ stats.new }}
         },
         "decks": [
             {% for deck in decks %}
@@ -117,15 +112,23 @@
     <section class="decks-section">
         <div class="section-header">
             <h2 class="section-title">Your Decks</h2>
-            <a href="/" class="btn btn-primary btn-sm" id="add-deck-btn">
-                <span>+</span> New Deck
-            </a>
+            <div class="section-header-actions">
+                {% if decks %}
+                <div class="deck-search-wrapper" id="deck-search-wrapper">
+                    <span class="search-icon">🔍</span>
+                    <input type="text" class="deck-search-input" id="deck-search" placeholder="Search decks..." autocomplete="off">
+                </div>
+                {% endif %}
+                <a href="/" class="btn btn-primary btn-sm" id="add-deck-btn">
+                    <span>+</span> New Deck
+                </a>
+            </div>
         </div>
 
         {% if decks %}
-        <div class="decks-grid">
+        <div class="decks-grid" id="decks-grid">
             {% for deck in decks %}
-            <div class="deck-card" id="deck-{{ deck.id }}" data-deck-id="{{ deck.id }}">
+            <div class="deck-card" id="deck-{{ deck.id }}" data-deck-id="{{ deck.id }}" data-deck-name="{{ deck.name | lower }}">
                 <div class="deck-card-header">
                     <h3 class="deck-name">{{ deck.name }}</h3>
                     <button class="deck-delete-btn" data-deck-id="{{ deck.id }}" title="Delete deck" id="delete-deck-{{ deck.id }}">
@@ -140,6 +143,10 @@
                     <div class="deck-stat">
                         <span class="deck-stat-value deck-stat-mastered">{{ deck.mastered }}</span>
                         <span class="deck-stat-label">Mastered</span>
+                    </div>
+                    <div class="deck-stat">
+                        <span class="deck-stat-value deck-stat-learning">{{ deck.learning }}</span>
+                        <span class="deck-stat-label">Learning</span>
                     </div>
                     <div class="deck-stat">
                         <span class="deck-stat-value deck-stat-due">{{ deck.due }}</span>
