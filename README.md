@@ -213,4 +213,3 @@ MIT License — feel free to use, modify, and distribute.
 
 ---
 
-> Built with ❤️ for smarter studying.
