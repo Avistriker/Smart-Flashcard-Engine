@@ -1,6 +1,7 @@
 # 📚 Smart Flashcard Engine
 
 > **AI-powered study tool that converts PDFs into intelligent flashcards with spaced repetition.**
+> 🌐 Live Demo: https://flashcard-dvkl.onrender.com/
 
 ---
 
