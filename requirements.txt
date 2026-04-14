@@ -4,4 +4,4 @@ python-dotenv
 PyMuPDF
 sqlalchemy
 gunicorn
-google-genai
+openai
