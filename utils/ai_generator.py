@@ -1,27 +1,50 @@
 """
 AI-powered flashcard generation using OpenRouter API.
-Uses chunking for comprehensive coverage of long documents
-and a rich prompt for teacher-quality card generation.
+Uses parallel chunking for fast, comprehensive coverage of long documents.
 """
 
 import os
 import json
 import re
+import time
 import requests
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from openai import OpenAI
 
-
-# Maximum characters per API call (model context window safe)
-CHUNK_SIZE = 4000
+# Larger chunks = fewer API calls = faster
+CHUNK_SIZE = 6000
 # Maximum total characters to process from the PDF
 MAX_TEXT_LENGTH = 12000
 # Minimum cards expected per chunk
 MIN_CARDS_PER_CHUNK = 5
 
+# Updated model list with reliable free models (verified April 2026)
+FALLBACK_MODELS = [
+    "z-ai/glm-4.5-air:free",  # New reliable model
+    "google/gemma-4-31b-it:free",
+    "openrouter/free",
+    "meta-llama/llama-3.3-70b-instruct:free",
+    "google/gemma-3-27b-it:free",
+    "qwen/qwen3-next-80b-a3b-instruct:free",
+    "deepseek/deepseek-r1-0528:free",
+]
+
+# Max retries per model before moving on
+MAX_RETRIES_PER_MODEL = 2
+
+# Backoff seconds per retry attempt (exponential)
+RETRY_BACKOFF = [2, 5, 10]
+
+# Rate limit cooldown tracking
+_rate_limit_tracker = {}
+_last_request_time = 0
+_MIN_REQUEST_INTERVAL = 1.5  # seconds between requests to avoid rate limits
+
 
 def generate_flashcards(text, images=None):
     """
     Send extracted PDF text to OpenRouter API and get back flashcards.
-    Uses chunking to handle long documents comprehensively.
+    Uses PARALLEL chunking for speed.
 
     Args:
         text: Extracted text from PDF
@@ -34,20 +57,43 @@ def generate_flashcards(text, images=None):
     if not api_key:
         raise ValueError("OPENROUTER_API_KEY environment variable is not set")
 
-    # Limit total text but process much more than before
+    # Limit total text
     working_text = text[:MAX_TEXT_LENGTH]
 
-    # Split into chunks for comprehensive coverage
+    # Split into chunks
     chunks = _split_into_chunks(working_text, CHUNK_SIZE)
+    total_chunks = len(chunks)
 
+    print(f"[Generator] Processing {total_chunks} chunk(s) in parallel...")
+
+    # ── PARALLEL execution: all chunks at once ──
     all_flashcards = []
-    for i, chunk in enumerate(chunks):
-        chunk_cards = _generate_chunk_flashcards(
-            api_key, chunk, images,
-            chunk_num=i + 1,
-            total_chunks=len(chunks)
+    errors = []
+
+    if total_chunks == 1:
+        # Single chunk — no threading overhead needed
+        cards = _generate_chunk_flashcards(
+            api_key, chunks[0], images, 1, 1
         )
-        all_flashcards.extend(chunk_cards)
+        all_flashcards.extend(cards)
+    else:
+        with ThreadPoolExecutor(max_workers=min(total_chunks, 2)) as executor:
+            futures = {
+                executor.submit(
+                    _generate_chunk_flashcards,
+                    api_key, chunk, images, i + 1, total_chunks
+                ): i
+                for i, chunk in enumerate(chunks)
+            }
+
+            for future in as_completed(futures):
+                chunk_idx = futures[future]
+                try:
+                    cards = future.result()
+                    all_flashcards.extend(cards)
+                except Exception as e:
+                    print(f"[Generator] Chunk {chunk_idx + 1} failed: {e}")
+                    errors.append(str(e))
 
     # Deduplicate similar cards
     all_flashcards = _deduplicate_cards(all_flashcards)
@@ -57,16 +103,15 @@ def generate_flashcards(text, images=None):
         all_flashcards = associate_images(all_flashcards, images)
 
     if not all_flashcards:
-        raise Exception("No flashcards could be generated from this document.")
+        error_detail = "; ".join(errors) if errors else "Unknown error"
+        raise Exception(f"No flashcards could be generated. {error_detail}")
 
+    print(f"[Generator] Done! {len(all_flashcards)} unique flashcards generated.")
     return all_flashcards
 
 
 def _split_into_chunks(text, chunk_size):
-    """
-    Split text into chunks, preferring to break at paragraph
-    or sentence boundaries for better context.
-    """
+    """Split text into chunks, preferring to break at paragraph or sentence boundaries."""
     if len(text) <= chunk_size:
         return [text]
 
@@ -95,90 +140,239 @@ def _split_into_chunks(text, chunk_size):
     return [c for c in chunks if len(c.strip()) > 50]
 
 
-def _generate_chunk_flashcards(api_key, text_chunk, images, chunk_num, total_chunks):
-    """Generate flashcards for a single text chunk."""
+def _build_prompt(text_chunk, images, chunk_num, total_chunks):
+    """Build the flashcard generation prompt."""
+    image_hint = ""
+    if images and len(images) > 0:
+        image_hint = f" The document has {len(images)} image(s)."
 
+    chunk_info = ""
+    if total_chunks > 1:
+        chunk_info = f" (Section {chunk_num}/{total_chunks})"
+
+    return f"""Generate flashcards from this text.{chunk_info}{image_hint}
+
+Create diverse Q&A cards: definitions, key concepts, relationships, examples, reasoning.
+Rules: specific questions, concise answers (2-3 sentences), at least {MIN_CARDS_PER_CHUNK} cards.
+
+Return ONLY a JSON array, no markdown, no code blocks, no extra text:
+[{{"question": "...", "answer": "..."}}]
+
+Text:
+{text_chunk}"""
+
+
+def _call_openrouter_with_openai(api_key, model, prompt):
+    """
+    Make API call using OpenAI-compatible client.
+    This approach often handles rate limits better.
+    """
+    global _last_request_time
+    
+    # Rate limiting
+    now = time.time()
+    time_since_last = now - _last_request_time
+    if time_since_last < _MIN_REQUEST_INTERVAL:
+        time.sleep(_MIN_REQUEST_INTERVAL - time_since_last)
+    
+    _last_request_time = time.time()
+    
+    try:
+        client = OpenAI(
+            base_url="https://openrouter.ai/api/v1",
+            api_key=api_key,
+            timeout=90.0,
+        )
+        
+        completion = client.chat.completions.create(
+            extra_headers={
+                "HTTP-Referer": "https://smart-flashcard-engine.onrender.com",
+                "X-Title": "Smart Flashcard Engine",
+            },
+            model=model,
+            messages=[
+                {
+                    "role": "user",
+                    "content": prompt
+                }
+            ],
+            temperature=0.7,
+            max_tokens=2000,
+        )
+        
+        content = completion.choices[0].message.content
+        
+        if not content or not content.strip():
+            raise APIError(f"Empty content from {model}")
+        
+        return parse_flashcard_json(content)
+        
+    except Exception as e:
+        error_msg = str(e)
+        if "429" in error_msg or "rate limit" in error_msg.lower():
+            raise RateLimitError(f"Rate limited on {model}: {error_msg}")
+        raise APIError(f"API error on {model}: {error_msg}")
+
+
+def _call_openrouter_requests(api_key, model, prompt):
+    """
+    Make API call using direct requests (fallback method).
+    """
+    global _last_request_time
+    
+    # Rate limiting
+    now = time.time()
+    time_since_last = now - _last_request_time
+    if time_since_last < _MIN_REQUEST_INTERVAL:
+        time.sleep(_MIN_REQUEST_INTERVAL - time_since_last)
+    
+    _last_request_time = time.time()
+    
     url = "https://openrouter.ai/api/v1/chat/completions"
-
+    
     headers = {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
         "HTTP-Referer": "https://smart-flashcard-engine.onrender.com",
         "X-Title": "Smart Flashcard Engine"
     }
-
-    # Build image context
-    image_context = ""
-    if images and len(images) > 0:
-        image_context = f"\n\nNote: The document contains {len(images)} image(s) on pages: {', '.join(str(img['page']) for img in images)}. Where relevant, reference visual elements (e.g. 'Refer to the diagram on page X')."
-
-    chunk_info = ""
-    if total_chunks > 1:
-        chunk_info = f" (This is section {chunk_num} of {total_chunks} from the document.)"
-
-    prompt = f"""You are an expert teacher creating flashcards for a student. Generate a comprehensive set of high-quality flashcards from the text below.{chunk_info}
-
-Create DIVERSE card types:
-1. **Definitions** — "What is X?" → concise definition
-2. **Key Concepts** — "Explain the concept of X" → clear explanation
-3. **Relationships** — "How does X relate to Y?" → connection between ideas
-4. **Edge Cases** — "What happens when X?" → boundary conditions, exceptions
-5. **Worked Examples** — "Solve/Calculate X" → step-by-step answer
-6. **Reasoning** — "Why does X occur?" → cause-effect understanding
-
-Rules:
-- Cover the material COMPREHENSIVELY — don't skip important points
-- Questions should be specific and unambiguous
-- Answers should be concise but complete (2-4 sentences max)
-- Avoid trivial or overly obvious questions
-- Generate at least {MIN_CARDS_PER_CHUNK} cards{image_context}
-
-Return ONLY a valid JSON array with no extra text, no markdown formatting, no code blocks. Just the raw JSON:
-[{{"question": "...", "answer": "..."}}]
-
-Text:
-{text_chunk}"""
-
+    
     data = {
-        "model": "openai/gpt-oss-120b:free",
-        "messages": [
-            {
-                "role": "user",
-                "content": prompt
-            }
-        ],
+        "model": model,
+        "messages": [{"role": "user", "content": prompt}],
         "temperature": 0.7,
-        "max_tokens": 4000
+        "max_tokens": 2000,
     }
+    
+    response = requests.post(url, headers=headers, json=data, timeout=90)
+    
+    if response.status_code == 429:
+        raise RateLimitError(f"Rate limited on {model}")
+    
+    if response.status_code != 200:
+        raise APIError(f"HTTP {response.status_code} from {model}: {response.text[:200]}")
+    
+    result = response.json()
+    
+    if 'error' in result:
+        err = result['error']
+        msg = err.get('message', str(err)) if isinstance(err, dict) else str(err)
+        raise APIError(f"{model}: {msg}")
+    
+    if 'choices' not in result or len(result['choices']) == 0:
+        raise APIError(f"No choices returned by {model}")
+    
+    content = result["choices"][0]["message"].get("content", "")
+    
+    if not content or not content.strip():
+        raise APIError(f"Empty content from {model}")
+    
+    return parse_flashcard_json(content)
 
+
+def _call_openrouter(api_key, model, prompt):
+    """
+    Make a single API call to OpenRouter.
+    Tries OpenAI client first, then falls back to requests.
+    """
     try:
-        response = requests.post(url, headers=headers, json=data, timeout=120)
-        response.raise_for_status()
-        result = response.json()
-
-        content = result["choices"][0]["message"]["content"]
-        flashcards = parse_flashcard_json(content)
-        return flashcards
-
-    except requests.exceptions.Timeout:
-        raise Exception("API request timed out. Please try again.")
-    except requests.exceptions.HTTPError as e:
-        raise Exception(f"API error: {e.response.status_code} - {e.response.text[:200]}")
-    except KeyError:
-        raise Exception("Unexpected API response format.")
+        return _call_openrouter_with_openai(api_key, model, prompt)
+    except (RateLimitError, APIError):
+        raise
     except Exception as e:
-        # If one chunk fails, log and continue with others
-        if "Could not parse" in str(e):
-            print(f"Warning: Chunk {chunk_num} failed to parse, skipping.")
-            return []
-        raise Exception(f"Failed to generate flashcards: {str(e)}")
+        # If OpenAI client fails for any reason, try requests
+        print(f"  OpenAI client failed, trying requests: {str(e)[:100]}")
+        return _call_openrouter_requests(api_key, model, prompt)
+
+
+class RateLimitError(Exception):
+    """Raised when the API returns 429."""
+    pass
+
+
+class APIError(Exception):
+    """Raised for non-rate-limit API errors."""
+    pass
+
+
+def _try_models(api_key, prompt, models, chunk_num):
+    """
+    Try a list of models with retries and exponential backoff.
+    Returns flashcards on success, or raises with the last error.
+    """
+    last_error = None
+
+    for model in models:
+        for attempt in range(1, MAX_RETRIES_PER_MODEL + 1):
+            try:
+                tag = f"[Chunk {chunk_num}]"
+                if attempt > 1:
+                    tag += f" (retry {attempt})"
+                print(f"{tag} Trying {model}...")
+
+                cards = _call_openrouter(api_key, model, prompt)
+                print(f"{tag} [OK] {len(cards)} cards from {model}")
+                return cards
+
+            except RateLimitError as e:
+                print(f"{tag} Rate limit: {e}")
+                last_error = str(e)
+                # Exponential backoff before retrying same model
+                if attempt < MAX_RETRIES_PER_MODEL:
+                    wait = RETRY_BACKOFF[min(attempt - 1, len(RETRY_BACKOFF) - 1)]
+                    print(f"{tag} Waiting {wait}s before retry...")
+                    time.sleep(wait)
+                    continue
+                else:
+                    break  # move to next model
+
+            except APIError as e:
+                print(f"{tag} API error: {e}")
+                last_error = str(e)
+                break  # API error (not rate limit) — skip to next model
+
+            except requests.exceptions.Timeout:
+                print(f"{tag} Timeout on {model}")
+                last_error = f"Timeout on {model}"
+                break
+
+            except Exception as e:
+                error_str = str(e)
+                print(f"{tag} Error: {error_str[:200]}")
+                last_error = error_str
+                break
+
+        # Small delay between switching models
+        time.sleep(1)
+
+    return None  # signal that all models failed in this pass
+
+
+def _generate_chunk_flashcards(api_key, text_chunk, images, chunk_num, total_chunks):
+    """
+    Generate flashcards for a single text chunk.
+    Cycles through fallback models with retries until one succeeds.
+    """
+    prompt = _build_prompt(text_chunk, images, chunk_num, total_chunks)
+
+    # Try all models
+    cards = _try_models(api_key, prompt, FALLBACK_MODELS, chunk_num)
+    if cards:
+        return cards
+
+    # If all models failed, wait and retry with the best model
+    print(f"[Chunk {chunk_num}] All models failed. Waiting 10s for final retry...")
+    time.sleep(10)
+    
+    cards = _try_models(api_key, prompt, FALLBACK_MODELS[:2], chunk_num)
+    if cards:
+        return cards
+
+    raise Exception("All AI models failed after retries. Please try again in a few minutes.")
 
 
 def _deduplicate_cards(cards):
-    """
-    Remove near-duplicate cards by comparing question similarity.
-    Uses a simple approach: normalize questions and check for high overlap.
-    """
+    """Remove near-duplicate cards by comparing question similarity."""
     if len(cards) <= 1:
         return cards
 
@@ -190,8 +384,7 @@ def _deduplicate_cards(cards):
         normalized = re.sub(r'[^\w\s]', '', card['question'].lower())
         normalized = ' '.join(normalized.split())
 
-        # Check if a very similar question was already seen
-        # Use first 60 chars as a fingerprint (catches most duplicates)
+        # Use first 60 chars as a fingerprint
         fingerprint = normalized[:60]
 
         if fingerprint not in seen_questions:
@@ -206,8 +399,12 @@ def parse_flashcard_json(content):
     Parse the AI response to extract flashcard JSON.
     Handles various formats: raw JSON, markdown code blocks, etc.
     """
-    # Remove any <think>...</think> reasoning blocks from the response
+    # Remove any <think>...</think> reasoning blocks
     content = re.sub(r'<think>.*?</think>', '', content, flags=re.DOTALL).strip()
+    
+    # Remove markdown code block markers if present
+    content = re.sub(r'^```(?:json)?\s*', '', content)
+    content = re.sub(r'\s*```$', '', content)
 
     # Try direct JSON parse first
     try:
@@ -260,10 +457,7 @@ def validate_cards(cards):
 
 
 def associate_images(flashcards, images):
-    """
-    Associate extracted images with flashcards.
-    Distributes images evenly across cards, or attaches by page reference.
-    """
+    """Associate extracted images with flashcards."""
     if not images:
         return flashcards
 
