@@ -66,10 +66,16 @@ class Card(Base):
 
     @property
     def mastery_level(self):
-        """Return mastery status based on repetitions and interval."""
-        if self.repetitions >= 5 and self.interval >= 21:
+        """Return mastery status based on repetitions, interval, and easiness factor.
+
+        Thresholds are tuned so that progress is visible quickly:
+        - Easy (quality 5) bumps EF up, so 2-3 Easy reviews can reach mastered.
+        - Medium (quality 3) keeps EF steady, so cards progress to learning fast.
+        - Hard (quality 1) resets repetitions but cards stay in learning once reviewed.
+        """
+        if self.repetitions >= 3 and self.interval >= 6:
             return 'mastered'
-        elif self.repetitions >= 2:
+        elif self.repetitions >= 1:
             return 'learning'
         else:
             return 'new'
@@ -80,17 +86,30 @@ def update_sm2(card, quality):
     Update a card's spaced repetition data using the SM-2 algorithm.
 
     quality: 1 = Hard, 3 = Medium, 5 = Easy
+
+    Differentiation:
+    - Easy (5)  → advances repetitions, interval grows faster (×1.3 bonus)
+    - Medium (3)→ advances repetitions, standard interval growth
+    - Hard (1)  → drops repetitions by 1 (min 0), short interval for quick re-review
     """
-    if quality >= 3:  # correct response
+    if quality == 5:  # Easy – strong recall
         if card.repetitions == 0:
-            card.interval = 1
+            card.interval = 2
         elif card.repetitions == 1:
             card.interval = 6
         else:
+            card.interval = round(card.interval * card.easiness_factor * 1.3)
+        card.repetitions += 1
+    elif quality == 3:  # Medium – correct but with effort
+        if card.repetitions == 0:
+            card.interval = 1
+        elif card.repetitions == 1:
+            card.interval = 4
+        else:
             card.interval = round(card.interval * card.easiness_factor)
         card.repetitions += 1
-    else:  # incorrect / hard
-        card.repetitions = 0
+    else:  # Hard (1) – struggled, review again soon but don't erase all progress
+        card.repetitions = max(0, card.repetitions - 1)
         card.interval = 1
 
     # Update easiness factor (minimum 1.3)
