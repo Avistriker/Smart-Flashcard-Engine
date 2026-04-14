@@ -58,18 +58,22 @@ def dashboard():
         total_mastered = 0
         total_due = 0
         total_learning = 0
+        total_new = 0
 
         for deck in decks:
             cards = deck.cards.all()
+            # These three are mutually exclusive mastery categories
             mastered = sum(1 for c in cards if c.mastery_level == 'mastered')
-            due = sum(1 for c in cards if c.is_due)
             learning = sum(1 for c in cards if c.mastery_level == 'learning')
             new = sum(1 for c in cards if c.mastery_level == 'new')
+            # 'due' is orthogonal — any card can be due regardless of mastery
+            due = sum(1 for c in cards if c.is_due)
 
             total_cards += len(cards)
             total_mastered += mastered
             total_due += due
             total_learning += learning
+            total_new += new
 
             deck_data.append({
                 'id': deck.id,
@@ -80,7 +84,7 @@ def dashboard():
                 'due': due,
                 'learning': learning,
                 'new': new,
-                'progress': round((mastered / len(cards) * 100) if cards else 0),
+                'progress': round(((mastered * 100 + learning * 40) / len(cards)) if cards else 0),
             })
 
         stats = {
@@ -88,6 +92,7 @@ def dashboard():
             'mastered': total_mastered,
             'due': total_due,
             'learning': total_learning,
+            'new': total_new,
             'total_decks': len(decks),
         }
 
@@ -182,22 +187,47 @@ def upload():
 
 @app.route('/api/deck/<int:deck_id>/cards')
 def get_deck_cards(deck_id):
-    """Get due cards for a deck (for practice mode)."""
+    """Get cards for practice — prioritizes due cards for spaced repetition."""
     session = Session()
     try:
         deck = session.query(Deck).get(deck_id)
         if not deck:
             return jsonify({'error': 'Deck not found'}), 404
 
-        # Get due cards first, then remaining cards
+        mode = request.args.get('mode', 'smart')  # 'smart' or 'all'
         now = datetime.utcnow()
-        due_cards = deck.cards.filter(Card.next_review_date <= now).all()
-        
-        if not due_cards:
-            # If no due cards, return all cards
-            due_cards = deck.cards.all()
 
-        cards = [c.to_dict() for c in due_cards]
+        if mode == 'all':
+            # Show all cards (for first-time study or review-all)
+            practice_cards = deck.cards.all()
+        else:
+            # Smart mode: due cards first
+            due_cards = deck.cards.filter(Card.next_review_date <= now).all()
+
+            if due_cards:
+                practice_cards = due_cards
+            else:
+                # No cards due — check if any cards exist at all
+                all_cards = deck.cards.all()
+                if not all_cards:
+                    return jsonify({'cards': [], 'total': 0})
+
+                # Check if all cards are brand new (never reviewed)
+                new_cards = [c for c in all_cards if c.repetitions == 0]
+                if new_cards:
+                    # First time studying this deck — show all new cards
+                    practice_cards = new_cards
+                else:
+                    # All cards reviewed, none due yet — return empty with next review time
+                    next_review = min(c.next_review_date for c in all_cards)
+                    return jsonify({
+                        'cards': [],
+                        'total': 0,
+                        'all_reviewed': True,
+                        'next_review': next_review.isoformat(),
+                    })
+
+        cards = [c.to_dict() for c in practice_cards]
         return jsonify({'cards': cards, 'total': len(cards)})
     finally:
         session.close()
@@ -283,7 +313,7 @@ def deck_stats(deck_id):
             'learning': learning,
             'new': new,
             'due': due,
-            'progress': round((mastered / len(cards) * 100) if cards else 0),
+            'progress': round(((mastered * 100 + learning * 40) / len(cards)) if cards else 0),
         })
     finally:
         session.close()
