@@ -82,7 +82,7 @@ def dashboard():
                 'due': due,
                 'learning': learning,
                 'new': new,
-                'progress': round(((mastered * 100 + learning * 40) / len(cards)) if cards else 0),
+                'progress': round((mastered * 100 + learning * 40) / len(cards)) if cards else 0,
             })
 
         stats = {
@@ -104,7 +104,7 @@ def practice(deck_id):
     """Practice page for a specific deck."""
     session = Session()
     try:
-        deck = session.query(Deck).get(deck_id)
+        deck = session.get(Deck, deck_id)
         if not deck:
             flash('Deck not found.', 'error')
             return redirect(url_for('dashboard'))
@@ -202,7 +202,7 @@ def get_deck_cards(deck_id):
     """Get cards for practice — prioritizes due cards for spaced repetition."""
     session = Session()
     try:
-        deck = session.query(Deck).get(deck_id)
+        deck = session.get(Deck, deck_id)
         if not deck:
             return jsonify({'error': 'Deck not found'}), 404
 
@@ -244,7 +244,7 @@ def review_card(card_id):
     """Submit a review rating for a card (Easy/Medium/Hard)."""
     session = Session()
     try:
-        card = session.query(Card).get(card_id)
+        card = session.get(Card, card_id)
         if not card:
             return jsonify({'error': 'Card not found'}), 404
 
@@ -276,7 +276,7 @@ def delete_deck(deck_id):
     """Delete a deck and all its cards."""
     session = Session()
     try:
-        deck = session.query(Deck).get(deck_id)
+        deck = session.get(Deck, deck_id)
         if not deck:
             return jsonify({'error': 'Deck not found'}), 404
 
@@ -302,7 +302,7 @@ def deck_stats(deck_id):
     """Get detailed statistics for a deck."""
     session = Session()
     try:
-        deck = session.query(Deck).get(deck_id)
+        deck = session.get(Deck, deck_id)
         if not deck:
             return jsonify({'error': 'Deck not found'}), 404
 
@@ -318,7 +318,7 @@ def deck_stats(deck_id):
             'learning': learning,
             'new': new,
             'due': due,
-            'progress': round(((mastered * 100 + learning * 40) / len(cards)) if cards else 0),
+            'progress': round((mastered * 100 + learning * 40) / len(cards)) if cards else 0,
         })
     finally:
         session.close()
