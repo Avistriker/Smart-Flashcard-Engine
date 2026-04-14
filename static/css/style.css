@@ -647,11 +647,58 @@ img { max-width: 100%; height: auto; }
     align-items: center;
     justify-content: space-between;
     margin-bottom: 24px;
+    flex-wrap: wrap;
+    gap: 12px;
+}
+
+.section-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 12px;
 }
 
 .section-title {
     font-size: 1.5rem;
     font-weight: 700;
+}
+
+/* Deck Search */
+.deck-search-wrapper {
+    position: relative;
+    display: flex;
+    align-items: center;
+}
+
+.deck-search-wrapper .search-icon {
+    position: absolute;
+    left: 12px;
+    font-size: 0.85rem;
+    pointer-events: none;
+    z-index: 1;
+}
+
+.deck-search-input {
+    background: var(--bg-glass);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-sm);
+    color: var(--text-primary);
+    font-family: inherit;
+    font-size: 0.85rem;
+    padding: 8px 14px 8px 36px;
+    width: 200px;
+    transition: all var(--transition-normal);
+    outline: none;
+}
+
+.deck-search-input::placeholder {
+    color: var(--text-muted);
+}
+
+.deck-search-input:focus {
+    border-color: var(--accent-primary);
+    background: var(--bg-tertiary);
+    box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15);
+    width: 260px;
 }
 
 .decks-grid {
@@ -724,6 +771,7 @@ img { max-width: 100%; height: auto; }
 }
 
 .deck-stat-mastered { color: var(--color-success); }
+.deck-stat-learning { color: var(--accent-primary); }
 .deck-stat-due { color: var(--color-warning); }
 
 .deck-stat-label {
