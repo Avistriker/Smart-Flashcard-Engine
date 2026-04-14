@@ -215,6 +215,9 @@ function initDashboard() {
     // Render analytics charts
     renderCharts();
 
+    // Deck search
+    initDeckSearch();
+
     // Delete deck buttons
     const deleteButtons = document.querySelectorAll('.deck-delete-btn');
     const deleteModal = document.getElementById('delete-modal');
@@ -290,6 +293,32 @@ function initDashboard() {
 
 
 /* ═══════════════════════════════════════════════════════
+   DECK SEARCH
+   ═══════════════════════════════════════════════════════ */
+
+function initDeckSearch() {
+    const searchInput = document.getElementById('deck-search');
+    if (!searchInput) return;
+
+    searchInput.addEventListener('input', () => {
+        const query = searchInput.value.toLowerCase().trim();
+        const deckCards = document.querySelectorAll('.deck-card');
+
+        deckCards.forEach(card => {
+            const name = card.dataset.deckName || '';
+            if (!query || name.includes(query)) {
+                card.style.display = '';
+                card.style.opacity = '1';
+                card.style.transform = '';
+            } else {
+                card.style.display = 'none';
+            }
+        });
+    });
+}
+
+
+/* ═══════════════════════════════════════════════════════
    DASHBOARD CHARTS (Pure Canvas 2D)
    ═══════════════════════════════════════════════════════ */
 
@@ -340,8 +369,7 @@ function renderDonutChart(stats) {
     const segments = [
         { label: 'Mastered',  value: stats.mastered,  color: '#34d399' },
         { label: 'Learning',  value: stats.learning,  color: '#6366f1' },
-        { label: 'Due',       value: stats.due,       color: '#fbbf24' },
-        { label: 'New',       value: stats.new,       color: '#64748b' },
+        { label: 'New',       value: stats.new || Math.max(0, stats.total - stats.mastered - stats.learning), color: '#64748b' },
     ];
 
     const total = segments.reduce((s, seg) => s + seg.value, 0);
@@ -397,17 +425,19 @@ function renderDonutChart(stats) {
             drawnSoFar += segAngle;
         });
 
-        // Center text
-        const overallPct = total > 0 ? Math.round((stats.mastered / total) * 100) : 0;
+        // Center text — weighted progress: mastered=100%, learning=40%, new=0%
+        const weightedProgress = total > 0
+            ? Math.round(((stats.mastered * 100) + ((stats.learning || 0) * 40)) / total)
+            : 0;
         ctx.fillStyle = '#f1f5f9';
         ctx.font = `700 ${Math.round(innerR * 0.55)}px Inter, sans-serif`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        ctx.fillText(`${Math.round(overallPct * eased)}%`, cx, cy - 6);
+        ctx.fillText(`${Math.round(weightedProgress * eased)}%`, cx, cy - 6);
 
         ctx.fillStyle = '#94a3b8';
         ctx.font = `500 ${Math.round(innerR * 0.22)}px Inter, sans-serif`;
-        ctx.fillText('Mastered', cx, cy + innerR * 0.32);
+        ctx.fillText('Progress', cx, cy + innerR * 0.32);
 
         if (progress < 1) {
             requestAnimationFrame(draw);
